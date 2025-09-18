@@ -1,7 +1,5 @@
 import math
 import random
-import time
-
 import pygame
 from pygame import mixer
 
@@ -103,6 +101,13 @@ game_state = MENU
 # Sound effects
 bullet_sound = mixer.Sound('laser.wav')
 explosion_sound = mixer.Sound('explosion.wav')
+
+
+# --- Variables globales para enemigos y jefe ---
+enemy_bullets = []
+boss_bullets = []
+boss_active = False
+boss = None
 
 
 class Bullet:
@@ -362,13 +367,11 @@ def fire_bullet(x, y):
         bullet_sound.play()
 
         if active_powerups['multi_shot'] > 0:
-            # Fire 3 bullets in triangle formation
-            bullets.append(Bullet(x + 16, y, BULLET_SPEED, 0))        # Center straight
+            bullets.append(Bullet(x + 16, y, BULLET_SPEED, 0.0))        # Center straight
             bullets.append(Bullet(x + 16, y, BULLET_SPEED, -0.3))     # Left angled
             bullets.append(Bullet(x + 16, y, BULLET_SPEED, 0.3))      # Right angled
         elif active_powerups['laser'] > 0:
-            # Fire powerful laser beam
-            bullets.append(Bullet(x + 16, y, BULLET_SPEED * 1.5))
+            bullets.append(Bullet(x + 16, y, int(BULLET_SPEED * 1.5)))
         else:
             bullets.append(Bullet(x + 16, y))
 
@@ -444,6 +447,23 @@ def reset_game():
     active_powerups = {'rapid_fire': 0, 'shield': 0, 'multi_shot': 0, 'laser': 0, 'freeze': 0}
 
     reset_enemies()
+
+
+# --- Clase EnemyBullet ---
+class EnemyBullet:
+    def __init__(self, x, y, speed=5, angle=0.0):
+        self.x = x
+        self.y = y
+        self.speed = speed
+        self.angle = float(angle)
+        self.active = True
+    def update(self):
+        self.x += math.sin(self.angle) * self.speed
+        self.y += math.cos(self.angle) * self.speed
+        if self.y > SCREEN_HEIGHT or self.x < 0 or self.x > SCREEN_WIDTH:
+            self.active = False
+    def draw(self):
+        pygame.draw.rect(screen, RED, (int(self.x), int(self.y), 4, 10))
 
 
 # Game Loop
@@ -561,7 +581,11 @@ while running:
                     enemyY[i] += enemyY_change[i]
                 elif enemyX[i] >= SCREEN_WIDTH - 64:
                     enemyX_change[i] = -ENEMY_SPEED * (2 if i < len(enemy_types) and enemy_types[i] == 1 else 1)
-                    enemyY[i] += enemyY_change[i]
+            # Enemy disparo aleatorio
+            if boss_active == False and freeze_timer <= 0 and random.random() < 0.005:
+                # Disparo recto hacia abajo
+                enemy_bullets.append(EnemyBullet(enemyX[i] + 32, enemyY[i] + 64, 5, 0))
+                enemyY[i] += enemyY_change[i]
 
                 # Check if enemy reached player
                 if enemyY[i] > 400:
@@ -614,6 +638,36 @@ while running:
             else:
                 bullet.draw()
 
+
+        # Actualizar y dibujar balas enemigas
+        for bullet in enemy_bullets[:]:
+            bullet.update()
+            bullet.draw()
+            # Colisión con el jugador
+            if isCollision(playerX + 32, playerY + 32, bullet.x, bullet.y, 25):
+                if invulnerable_time <= 0 and active_powerups['shield'] <= 0:
+                    player_lives -= 1
+                    invulnerable_time = 120
+                    if player_lives <= 0:
+                        high_score = max(high_score, score_value)
+                        game_state = GAME_OVER
+                enemy_bullets.remove(bullet)
+            elif not bullet.active:
+                enemy_bullets.remove(bullet)
+
+        # Daño al jefe por balas del jugador
+        if boss_active and boss is not None:
+            for bullet in bullets[:]:
+                if isCollision(boss.x + 60, boss.y + 40, bullet.x, bullet.y, 60):
+                    boss.hp -= 1 if active_powerups['laser'] <= 0 else 3
+                    if active_powerups['laser'] <= 0:
+                        bullets.remove(bullet)
+                    if boss.hp <= 0:
+                        score_value += 100
+                        boss_active = False
+                        boss = None
+                        create_explosion(playerX, boss.y)
+                        break
         for powerup in powerups:
             powerup.draw()
 
